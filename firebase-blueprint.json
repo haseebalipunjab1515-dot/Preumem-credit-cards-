@@ -1,0 +1,137 @@
+{
+  "entities": {
+    "Review": {
+      "title": "Review",
+      "description": "User reviews for assets",
+      "type": "object",
+      "properties": {
+        "assetId": { "type": "string", "description": "The ID of the asset being reviewed" },
+        "rating": { "type": "number", "minimum": 1, "maximum": 5, "description": "Rating from 1 to 5" },
+        "comment": { "type": "string", "maxLength": 500, "description": "Review text" },
+        "userId": { "type": "string", "description": "The ID of the user who wrote the review" },
+        "userName": { "type": "string", "description": "Display name of the reviewer" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the review was created" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"], "description": "Moderation status" }
+      },
+      "required": ["assetId", "rating", "comment", "userId", "userName", "timestamp", "status"]
+    },
+    "AssetStats": {
+      "title": "AssetStats",
+      "description": "Aggregated rating statistics for an asset",
+      "type": "object",
+      "properties": {
+        "averageRating": { "type": "number" },
+        "reviewCount": { "type": "number" }
+      },
+      "required": ["averageRating", "reviewCount"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "System administrators",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" }
+      },
+      "required": ["email"]
+    },
+    "Purchase": {
+      "title": "Purchase",
+      "description": "Record of a asset purchase",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "assetId": { "type": "string" },
+        "assetTitle": { "type": "string" },
+        "price": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "status": { "type": "string" }
+      },
+      "required": ["userId", "assetId", "assetTitle", "price", "timestamp", "status"]
+    },
+    "SavedAsset": {
+      "title": "SavedAsset",
+      "description": "Asset saved by user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "assetId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "assetId", "timestamp"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["price_drop", "new_listing", "system"] },
+        "read": { "type": "boolean" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "type", "read", "timestamp"]
+    },
+    "Deposit": {
+      "title": "Deposit",
+      "description": "User credit deposit",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "amount": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "txId": { "type": "string", "description": "Transaction identification string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "status": { "type": "string" }
+      },
+      "required": ["userId", "amount", "paymentMethod", "txId", "timestamp", "status"]
+    },
+    "PriceAlert": {
+      "title": "PriceAlert",
+      "description": "User price threshold alert",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "assetId": { "type": "string" },
+        "threshold": { "type": "number", "description": "The price threshold to trigger alert" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "assetId", "threshold", "timestamp"]
+    }
+  },
+  "firestore": {
+    "reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Collection of all asset reviews"
+    },
+    "assetStats/{assetId}": {
+      "schema": "AssetStats",
+      "description": "Pre-calculated statistics for each asset"
+    },
+    "admins/{userId}": {
+      "schema": "Admin",
+      "description": "List of admin users"
+    },
+    "purchases/{purchaseId}": {
+      "schema": "Purchase",
+      "description": "History of user purchases"
+    },
+    "savedAssets/{saveId}": {
+      "schema": "SavedAsset",
+      "description": "User's bookmarked assets"
+    },
+    "notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    },
+    "deposits/{depositId}": {
+      "schema": "Deposit",
+      "description": "History of user deposits"
+    },
+    "priceAlerts/{alertId}": {
+      "schema": "PriceAlert",
+      "description": "User price alerts"
+    }
+  }
+}

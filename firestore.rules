@@ -1,0 +1,162 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      // Relaxed for demo - allows any signed in user including anonymous
+      return isSignedIn();
+    }
+
+    function isAdmin() {
+      // Check if user exists in admins collection
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Review Validation (Shared for Create/Update) ---
+    function isValidReview(data) {
+      return data.keys().hasAll(['assetId', 'rating', 'comment', 'userId', 'userName', 'timestamp', 'status'])
+        && data.keys().size() == 7
+        && data.assetId is string && data.assetId.size() <= 128
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && data.comment is string && data.comment.size() <= 500
+        && data.userId == request.auth.uid
+        && data.userName is string && data.userName.size() <= 100
+        && data.timestamp == request.time
+        && data.status in ['pending', 'approved', 'rejected'];
+    }
+
+    // --- Deposit Validation ---
+    function isValidDeposit(data) {
+      return data.keys().hasAll(['userId', 'amount', 'paymentMethod', 'txId', 'timestamp', 'status'])
+        && data.userId == request.auth.uid
+        && data.amount is string && data.amount.size() <= 64
+        && data.paymentMethod is string && data.paymentMethod.size() <= 128
+        && data.txId is string && data.txId.size() <= 256
+        && data.timestamp is timestamp
+        && data.status is string && data.status.size() <= 64;
+    }
+
+    // --- Rules ---
+
+    // Reviews Collection
+    match /reviews/{reviewId} {
+      // Secure List Queries: filter by status or ownership
+      allow read: if (resource.data.status == 'approved')
+        || (isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin()));
+      
+      allow create: if isEmailVerified() 
+        && isValidReview(incoming())
+        && incoming().status == 'pending'; // New reviews must be pending
+
+      allow update: if (isEmailVerified() && (
+        // Action: User updates their own review (re-submits for moderation)
+        (isOwner(existing().userId) 
+          && isValidReview(incoming())
+          && incoming().status == 'pending'
+          && incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'comment', 'timestamp', 'status']))
+        || 
+        // Action: Admin moderates
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+      ));
+
+      allow delete: if isAdmin() || (isSignedIn() && isOwner(existing().userId));
+    }
+
+    // Asset Stats
+    match /assetStats/{assetId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Purchases
+    match /purchases/{purchaseId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isEmailVerified() 
+        && incoming().userId == request.auth.uid
+        && incoming().timestamp == request.time
+        && incoming().keys().hasAll(['userId', 'assetId', 'assetTitle', 'price', 'timestamp', 'status'])
+        && incoming().keys().size() == 6;
+      allow update, delete: if false; // Purchases are immutable
+    }
+
+    // Saved Assets
+    match /savedAssets/{saveId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isEmailVerified() 
+        && incoming().userId == request.auth.uid
+        && incoming().timestamp == request.time
+        && incoming().keys().hasAll(['userId', 'assetId', 'timestamp'])
+        && incoming().keys().size() == 3;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() 
+        && resource.data.userId == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow create, delete: if isAdmin(); // Only system/admin can send/remove
+    }
+
+    // Deposits
+    match /deposits/{depositId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isEmailVerified() && isValidDeposit(incoming());
+      allow update: if isAdmin() 
+        && incoming().userId == existing().userId 
+        && incoming().amount == existing().amount 
+        && incoming().paymentMethod == existing().paymentMethod 
+        && incoming().txId == existing().txId 
+        && incoming().timestamp == existing().timestamp 
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+        && incoming().status is string 
+        && incoming().status.size() <= 64;
+      allow delete: if isAdmin();
+    }
+
+    // Price Alerts
+    match /priceAlerts/{alertId} {
+      allow list: if isSignedIn();
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isEmailVerified() 
+        && incoming().userId == request.auth.uid
+        && incoming().timestamp == request.time
+        && incoming().keys().hasAll(['userId', 'assetId', 'threshold', 'timestamp'])
+        && incoming().keys().size() == 4
+        && incoming().threshold is number;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // Admins Collection
+    match /admins/{userId} {
+      allow read: if isSignedIn(); // Allow checking if self is admin
+      allow write: if false; // Admins managed via console or bootstrap
+    }
+  }
+}

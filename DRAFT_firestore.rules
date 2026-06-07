@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Review Validation ---
+    function isValidReview(data) {
+      return data.keys().hasAll(['assetId', 'rating', 'comment', 'userId', 'userName', 'timestamp', 'status'])
+        && data.keys().size() == 7
+        && data.assetId is string && data.assetId.size() <= 128
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && data.comment is string && data.comment.size() <= 500
+        && data.userId == request.auth.uid
+        && data.userName is string && data.userName.size() <= 100
+        && data.timestamp == request.time
+        && data.status in ['pending', 'approved', 'rejected'];
+    }
+
+    // --- Rules ---
+
+    // Reviews Collection
+    match /reviews/{reviewId} {
+      allow read: if isAdmin() 
+        || (resource.data.status == 'approved')
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
+      
+      allow create: if isEmailVerified() 
+        && isValidReview(incoming())
+        && incoming().status == 'pending'; // New reviews must be pending
+
+      allow update: if (isEmailVerified() && isValidReview(incoming()) && (
+        // Action: User edits their own (goes back to pending)
+        (isOwner(existing().userId) 
+          && incoming().status == 'pending'
+          && incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'comment', 'timestamp', 'status']))
+        || 
+        // Action: Admin moderates
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+      ));
+
+      allow delete: if isAdmin() || (isSignedIn() && isOwner(existing().userId));
+    }
+
+    // Asset Stats (read by all, written by admin or system)
+    match /assetStats/{assetId} {
+      allow read: if true;
+      allow write: if isAdmin(); // In a real app, this might be a cloud function
+    }
+
+    // Admins Collection (only admins can read/write)
+    match /admins/{userId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
